@@ -1,0 +1,996 @@
+<!DOCTYPE HTML>
+<html lang="en">
+<head>
+  <title>Falcor &amp; Relay. Is declarative data management the future?</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=792, user-scalable=no" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <link rel="stylesheet" href="node_modules/shower-bright/styles/screen.css" />
+  <link rel="stylesheet" href="node_modules/prismjs/themes/prism-okaidia.css" />
+</head>
+<body class="list">
+  <header class="caption">
+    <h1>Falcor &amp; Relay. Is declarative data management the future?</h1>
+    <p>Vyacheslav Slinko, 2015</p>
+  </header>
+
+  <section class="slide"><div>
+    <h2>Falcor &amp; Relay</h2>
+    <h2>Is declarative data management the&nbsp;future?</h2>
+    <p><a href="http://vslinko.com">Vyacheslav Slinko</a>, 2015</p>
+  </div></section>
+
+  <section class="slide shout"><div>
+    <h2>Current state of&nbsp;data management on&nbsp;the&nbsp;web</h2>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>REST</h2>
+    <pre><code class="language-http">GET /users/1
+GET /users/1/fiends/
+PATCH /users/2
+POST /users/2</code></pre>
+    <ul>
+      <li>Good decoupling</li>
+      <li>Good caching</li>
+      <li>Very expensive</li>
+      <li>It's hell when you have a lot of microservices</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>RPC</h2>
+    <pre><code class="language-http">GET /usersWithFiends?userId=1
+POST /resetPassword?userId=1</code></pre>
+    <ul>
+      <li>Could be cached by HTTP</li>
+      <li>Very tight coupling</li>
+      <li>Bad maintainability</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>JSON API</h2>
+    <pre><code class="language-http">GET /users/1?include=fiends&amp;fields[user]=name</code></pre>
+    <ul>
+      <li>It's a real standard</li>
+      <li>Good decoupling</li>
+      <li>Poorly cached by HTTP becouse of fields slicing and includes</li>
+      <li>It's more configurable than REST but not enought</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Direct requests to the server</h2>
+    <pre><code class="language-js">$.get(`/todos/${id}/complete`, () => {
+  todos[id].complete = true;
+  // rerender
+});</code></pre>
+    <ul>
+      <li>Easy to write</li>
+      <li>Hard to maintain</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Simple Data Access Layer</h2>
+    <pre><code class="language-js">const Users = {
+  get: (id) => $.get(`/users/${id}`),
+  /* ... */
+};
+
+Users.get(id);
+Users.getFiends(id);
+Users.update(id, {name});</code></pre>
+    <ul>
+      <li>Easy to write</li>
+      <li>Easier to maintain than direct requests but still hard</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Object-Relational Mapping</h2>
+    <pre><code class="language-js">const User = new Model('/users', {
+  relationships: {friends}
+});
+
+const user = await User.get(id);
+const friends = await user.getFriends();
+await user.set('name', newName);</code></pre>
+    <ul>
+      <li>Easy to write</li>
+      <li>Easier to maintain</li>
+      <li>But imperative</li>
+    </ul>
+  </div></section>
+
+  <section class="slide shout"><div>
+    <h2><a href="http://netflix.github.io/falcor/">Falcor</a></h2>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Key concepts of Falcor</h2>
+    <ul>
+      <li>Paths</li>
+      <li>JSON Graph (ref, atom, error)</li>
+      <li>Async MVC</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Paths</h2>
+    <pre><code class="language-js">// Key  = JsonValue
+// Path = Array&lt;Key&gt;
+['users', 0, 'name']
+'users[0].name'
+
+// Range   = {from: Number, to: Number} | {from: Number, length: Number}
+// KeySet  = Key | Range | Array&lt;Key&gt;
+// PathSet = Array&lt;KeySet&gt;
+['users', {from: 0, to: 10}, ['name', 'email']]
+'users[0..10]["name","email"]'
+</code></pre>
+    <ul>
+      <li>Reffers to a location within a JSON starting from the root</li>
+      <li>Could be specified in Path Syntax String</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>JSON Graph: References</h2>
+    <pre><code class="language-js">{ usersById: {
+    '10': {
+      name: 'John',
+      likes: [{$type: 'ref', value: ['usersById', 10]}],
+    },
+  },
+  users: [
+    {$type: 'ref', value: ['usersById', 10]},
+  ] }</code></pre>
+    <ul>
+      <li>No duplicate copies of the same entity</li>
+      <li>Decreases size of a server response</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>JSON Graph: Atoms</h2>
+    <pre><code class="language-js">{
+  $type: 'atom',
+  value: {foo: 'bar'},
+  $expires: -1000,
+}</code></pre>
+    <ul>
+      <li>Could contain some metadata for the concrete value</li>
+      <li>Container for small objects and arrays</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>JSON Graph: Errors</h2>
+    <pre><code class="language-js">{
+  usersById: {
+    '32': {
+      username: 'Rick',
+      password: {
+        $type: 'error',
+        value: 'Ummm... No!'
+      }
+    }
+  }
+}</code></pre>
+    <ul>
+      <li>Could be used as a value</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Async MVC</h2>
+    <pre><code class="language-js">const template = `&lt;div&gt;{userModel.getValue('name') | async}&lt;/div&gt;`;
+
+@Component({ template })
+class UserComponent {
+  constructor(params) {
+    this.userModel = model.deref(['users', params.get('id')]);
+  }
+}</code></pre>
+    <ul>
+      <li>Controller is choosing a some location within the JSON Graph</li>
+      <li>View is requesting a required fields</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Falcor API</h2>
+    <ul>
+      <li>Model (cache, optimization, fragments, subscribtions)</li>
+      <li>Router</li>
+      <li>Value setters</li>
+      <li>Falcor functions</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Falcor Model: Cache management</h2>
+    <pre><code class="language-js">const model = falcor({
+  source: new HttpDataSource('/model.json')
+});
+
+// fetches [['users', {from: 0, to: 10}, 'name']]
+await model.get(
+  'users[0..10]["name"]'
+);
+
+// cache hit
+await model.getValue(
+  'users[4]["name"]'
+);</code></pre>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Falcor Model: Path optimization</h2>
+    <pre><code class="language-js">const model = falcor({
+  source: new HttpDataSource('/model.json')
+});
+
+// fetches [['users', {from: 0, to: 10}, 'name']]
+await model.get(
+  'users[0..10].friends[0..10]["name"]'
+);
+
+// fetches [['usersById', '42', 'email']]
+await model.getValue(
+  'users[4].friends[2]["email"]'
+);</code></pre>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Falcor Model: Fragments</h2>
+    <pre><code class="language-js">const model = falcor({
+  source: new HttpDataSource('/model.json')
+});
+
+model
+  .deref('users[0]', 'name')
+  .subscribe((userModel) => { // stream with a single value
+    await userModel.getValue('name');
+  });</code></pre>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Falcor Model: Subscribtions</h2>
+    <p>Not yet (<a href="https://github.com/Netflix/falcor/issues/91">Netflix/falcor#91</a>)</p>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Falcor Router: Ordered list of users</h2>
+    <pre><code class="language-js">{
+  route: 'users[{ranges:indexRanges}]',
+  get(pathSet) { // ['users', [{from: 0, to: 10}]]
+    const result = getUserIdsByRanges(pathSet.indexRanges);
+
+    return result.map(({rangeIndex, id}) => ({
+      path: ['users', rangeIndex],
+      value: jsong.ref(['usersById', id])
+    }));
+  }
+}</code></pre>
+    <ul>
+      <li>Route handlers could return array of PathValue objects</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Falcor Router: Users grouped by id</h2>
+    <pre><code class="language-js">{
+  route: 'usersById[{integers:ids}]["name","email"]',
+  get(pathSet) { // ['usersById', [11, 22, 33], ['name']]
+    return {
+      jsonGraph: {
+        usersById: groupBy('id', getUsersByIds(pathSet.ids)),
+      },
+    };
+  }
+}</code></pre>
+    <ul>
+      <li>Route handlers could return a slice of JSON Graph</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Setters in Falcor</h2>
+    <pre><code class="language-js">await model.setValue('users[0].name', 'Robert'); // client
+
+{ route: 'usersById[{integers}]["name"]', // server
+  set(jsonGraph) { // {usersById: {32: {name: 'Ann'}}}
+    return Object.keys(jsonGraph.usersById)
+      .map((id) => ({
+        path: ['usersById', id, 'name'],
+        value: updateUserName(id, jsonGraph.usersById[id].name),
+      }));
+  } }</code></pre>
+    <ul>
+      <li>Setters should be idempotent</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Falcor functions on the client</h2>
+    <pre><code class="language-js">await model.call(
+  ['users', 'create'], // Path to call
+  ['Lucy'],            // Arguments
+  [['name']],          // refPaths: [['usersById', 32, 'name']]
+  [['length']]         // thisPaths: [['users', 'length']]
+);</code></pre>
+    <ul>
+      <li><code>refPaths</code> and <code>thisPaths</code> are used to prefech data</li>
+      <li><code>refPaths</code> are evaluated over a returned references</li>
+      <li><code>thisPaths</code> are evaluated over a function context</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Falcor functions on the server</h2>
+    <pre><code class="language-js">{ route: 'users.create',
+  call(pathSet, args, refPaths, thisPaths) {
+    const user = createUser();
+    const index = calculateUserIndex(user);
+
+    return {
+      jsonGraph: {
+        usersById: {[user.id]: jsong.atom(user)},
+        users: {[index]: jsong.ref(['usersById', user.id])},
+      },
+    };
+  }
+}</code></pre>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>What is Falcor?</h2>
+    <ul>
+      <li>Paths, Path Sets, Ranges</li>
+      <li>JSON Graph with References, Atoms, Errors</li>
+      <li>Model
+        <ul>
+          <li>Caching</li>
+          <li>Optimizations</li>
+          <li>Fragments</li>
+          <li>Subscriptions</li>
+        </ul>
+      </li>
+      <li>Router
+        <ul>
+          <li>Path Matching</li>
+          <li>Fulfills requests</li>
+        </ul>
+      </li>
+    </ul>
+  </div></section>
+
+  <section class="slide shout"><div>
+    <h2><a href="https://facebook.github.io/graphql/">GraphQL</a></h2>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>GraphQL</h2>
+    <ul>
+      <li>Specification</li>
+      <li>Query Language</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>GraphQL: Request</h2>
+    <pre><code class="language-js">{
+  me {
+    email
+    name
+  }
+}</code></pre>
+    <ul>
+      <li>Looks like JSON that we want to receive</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>GraphQL Response</h2>
+    <pre><code class="language-js">{data: {
+  me {
+    email: 'test@example.com',
+    name: 'Test'
+  }
+}}</code></pre>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>GraphQL: Arguments</h2>
+    <pre><code class="language-js">{
+  user(id: 1) {
+    email
+    name
+  }
+}</code></pre>
+    <ul>
+      <li>Arguments are named</li>
+      <li>Arguments could have a default value</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>GraphQL: Fragments</h2>
+    <pre><code class="language-js">{
+  user(id: 1) {
+    ...UserProfile
+  }
+}
+
+fragment UserProfile on User { name, ...UserAvatar }
+fragment UserAvatar on User { avatar }</code></pre>
+    <ul>
+      <li>Fragments are used to construct a single query for all components in&nbsp;the components tree</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>GraphQL: Aliases</h2>
+    <pre><code class="language-js">{
+  john: user(id: 1) {
+    ...UserProfile
+  }
+  ann: user(id: 2) {
+    ...UserProfile
+  }
+}
+
+fragment UserProfile on User { name, ...UserAvatar }
+fragment UserAvatar on User { avatar }</code></pre>
+    <ul>
+      <li>Used to merge several similar queries to a single one</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>GraphQL: Mutations</h2>
+    <pre><code class="language-js">mutation UpdateUser {
+  updateUser(id: 1, name: "Test") {
+    name
+  }
+}</code></pre>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>GraphQL: Variables</h2>
+    <pre><code class="language-js">mutation UpdateUser($name: String!) {
+  updateUser(id: 1, name: $name) {
+    name
+  }
+}</code></pre>
+    <pre><code class="language-js">{ "query": "mutation UpdateUser($name: String!) { updateUser(id: 1, name: $name) { name } }",
+  "variables": {
+    "name": "Test"
+  } }</code></pre>
+    <ul>
+      <li>You don't need to escape variables</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>GraphQL: Errors</h2>
+    <pre><code class="language-js">{ data: {
+    user: {
+      name: 'John',
+      password: null
+    }
+  },
+  errors: [
+    { message: 'Hmmm... No!',
+      location: [{line: 4, column: 4}] }
+  ]
+}</code></pre>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>What is GraphQL?</h2>
+    <ul>
+      <li>Specification</li>
+      <li>Query Language</li>
+      <li>Type System
+        <ul>
+          <li>Scalars: Int, Float, String, Boolean, ID</li>
+          <li>Objects and Interfaces</li>
+          <li>Enums, Unions, Lists</li>
+        </ul>
+      </li>
+      <li>Introspection</li>
+      <li>Built-in Documentation</li>
+      <li>Built-in Deprecation Management</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>GraphQL Implementations</h2>
+    <ul>
+      <li><a href="https://github.com/graphql/graphql-js">GraphQL.js</a></li>
+      <li><a href="https://github.com/graphql/libgraphqlparser">libgraphqlparser</a></li>
+      <li><a href="https://github.com/rmosolgo/graphql-ruby">GraphQL for Ruby</a></li>
+      <li><a href="https://github.com/sangria-graphql/sangria">Sangria for Scala</a></li>
+      <li>...</li>
+    </ul>
+  </div></section>
+
+  <section class="slide shout"><div>
+    <h2><a href="https://github.com/graphql/graphql-js">GraphQL.js</a></h2>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>GraphQL.js: <a href="https://github.com/graphql/express-graphql">Express middleware</a></h2>
+    <pre><code class="language-js">app.use(graphqlMiddleware((request) => {
+  return {
+    schema,
+    graphiql: process.env.NODE_ENV !== 'production',
+    rootValue: {
+      user: request.user,
+    },
+  };
+}));</code></pre>
+    <ul>
+      <li><code>rootValue</code> used as context of a query</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>GraphQL.js: Schema definition</h2>
+    <pre><code class="language-js">const user = new GraphQLObjectType({
+  /* ... */
+});
+
+const rootQuery = new GraphQLObjectType({
+  /* ... */
+});
+
+const schema = new GraphQLSchema({ query: rootQuery });</code></pre>
+    <ul>
+      <li>Schema includes special root query type and root mutation type</li>
+      <li>Fields of those types are root fields of our data graph</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>GraphQL.js: RootQuery</h2>
+    <pre><code class="language-js">new GraphQLObjectType({
+  name: 'RootQuery',
+  fields: {
+    me: { type: user, resolve: (rootValue) => rootValue.user },
+    user: {
+      type: user,
+      args: { id: { type: new GraphQLNonNull(GraphQLInt) } },
+      resolve: (rootValue, args) => getUserById(args.id),
+    },
+  },
+});</code></pre>
+    <ul>
+      <li>Fields of root type are looks like a regular REST endpoints</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>GraphQL.js: User</h2>
+    <pre><code class="language-js">new GraphQLObjectType({
+  name: 'User',
+  fields: {
+    id:     { type: new GraphQLNonNull(GraphQLInt) },
+    name:   { type: new GraphQLNonNull(GraphQLString) },
+    email:  { type: new GraphQLNonNull(GraphQLString) },
+    avatar: { type: GraphQLString },
+  },
+});</code></pre>
+    <ul>
+      <li>Resolve function could be omitted</li>
+    </ul>
+  </div></section>
+
+  <section class="slide shout"><div>
+    <h2><a href="https://github.com/facebook/relay">Relay</a></h2>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>What is Relay?</h2>
+    <ul>
+      <li>Additions for GraphQL</li>
+      <li>Network Layer</li>
+      <li>Containers</li>
+      <li>Mutations</li>
+      <li>Type validation (<code><a href="https://facebook.github.io/relay/docs/guides-babel-plugin.html">babel-relay-plugin</a></code>)</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Relay additions to GraphQL: Node</h2>
+    <pre><code class="language-js">{
+  node(id: "VXNlcjox") {
+    ... on User {
+      name
+      email
+    }
+  }
+}</code></pre>
+    <ul>
+      <li>All types should implement <code>Node</code> interface</li>
+      <li><code>RootQuery</code> should have <code>node</code> field</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Relay additions to GraphQL: Node</h2>
+    <pre><code class="language-js">new GraphQLObjectType({
+  name: 'User',
+  fields: {
+    id: globalIdField('User'),
+  },
+  interfaces: [nodeInterface],
+});</code></pre>
+    <ul>
+      <li>Package <code><a href="https://github.com/graphql/graphql-relay-js">graphql-relay</a></code> contains helpers for that</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Relay additions to GraphQL: Mutations</h2>
+    <pre><code class="language-js">mutation UpdateUser($input: UpdateUserInput!) {
+  updateUser(input: $input) { # UpdateUserPayload
+    clientMutationId
+    user { name }
+  }
+}</code></pre>
+    <ul>
+      <li>Mutations should have one argument called <code>input</code></li>
+      <li>Mutations should have special input and output types</li>
+      <li>That special types should have <code>clientMutationId</code> keys</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Relay additions to GraphQL: Mutation</h2>
+    <pre><code class="language-js">mutationWithClientMutationId({
+  name: 'UpdateUser',
+  inputFields: {
+    id: { type: new GraphQLNonNull(GraphQLID) },
+    name: { type: GraphQLString },
+  },
+  outputFields: {
+    user: { type: user },
+  },
+  mutateAndGetPayload: ({id, name, email}) => updateUser(id, {name, email}),
+});</code></pre>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Relay additions to GraphQL: Connection</h2>
+    <pre><code class="language-js">{ users(after: "YXJyYXljb25uZWN0aW9uOjQ=", first: 10) { # UserConnection
+    pageInfo {
+      hasNextPage
+    }
+    edges { # List&lt;UserEdge&gt;
+      cursor
+      node { id email } # User
+    }
+  }
+}</code></pre>
+    <ul>
+      <li>Used for pagination and cache management</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Relay additions to GraphQL: Viewer</h2>
+    <pre><code class="language-js">{
+  viewer {
+    ...
+  }
+}</code></pre>
+    <ul>
+      <li>Relay supports only three types of root fields (<a href="https://github.com/facebook/relay/issues/112">facebook/relay#112</a>)</li>
+      <li><code>viewer</code> used as workarond</li>
+      <li>Also <code>viewer</code> can be passed thru components tree</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Relay Network Layer</h2>
+    <pre><code class="language-js">Relay.injectNetworkLayer(
+  new Relay.DefaultNetworkLayer('http://example.com/graphql', {
+    fetchTimeout: 30000, // Timeout after 30s.
+    retryDelays: [5000], // Only retry once after a 5s delay.
+  })
+);</code></pre>
+    <pre><code class="language-js">var myNetworkLayer = {
+  sendMutation(mutationRequest) { /* ... */ },
+  sendQueries(queryRequests) { /* ... */ },
+  supports(...options) { /* ... */ },
+};</code></pre>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Relay Containers</h2>
+    <pre><code class="language-js">Relay.createContainer(UserProfile, {
+  fragments: {
+    user: () => Relay.QL`
+      fragment on User {
+        name
+        avatar
+      }
+    `,
+  },
+});</code></pre>
+    <ul>
+      <li>Container decorates a dumb component</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Relay Containers</h2>
+    <pre><code class="language-js">Relay.createContainer(UserProfile, {
+  fragments: {
+    user: () => Relay.QL`
+      fragment on User {
+        ${UserAvatarContainer.getFragment('user')}
+        name
+      }
+    `,
+  },
+});</code></pre>
+    <ul>
+      <li>Container can include fragments from containers of child components</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Relay Containers</h2>
+    <pre><code class="language-js">Relay.createContainer(UserPage, {
+  initialVariables: { userId: null },
+  fragments: {
+    viewer: () => Relay.QL`
+      fragment on Viewer {
+        user(id: $userId) { ${UserProfileContainer.getFragment('user')} }
+      }
+    `,
+  },
+});</code></pre>
+    <ul>
+      <li>Containers have own state</li>
+      <li><code><a href="https://github.com/relay-tools/react-router-relay">react-router-relay</a></code> can pass query parameters to Relay container</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Relay Mutations</h2>
+    <pre><code class="language-js">class RemoveCartPositionMutation extends Relay.Mutation {
+  static fragments = {
+    cartPosition: () => Relay.QL`
+      fragment on Cart {
+        id
+        totalPrice
+        cart { id totalPrice }
+      }
+    `,
+  }
+};</code></pre>
+    <ul>
+      <li>Fragments are used to declare requirements</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Relay Mutations</h2>
+    <pre><code class="language-js">class RemoveCartPositionMutation extends Relay.Mutation {
+  getMutation() {
+    return Relay.QL`mutation { removeCartPosition }`;
+  }
+};</code></pre>
+    <ul>
+      <li>This method should return name of the operation</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Relay Mutations</h2>
+    <pre><code class="language-js">class RemoveCartPositionMutation extends Relay.Mutation {
+  getVariables() {
+    return {
+      cartPositionId: this.props.cartPosition.id,
+    };
+  }
+};</code></pre>
+    <ul>
+      <li>This method should prepare variables that will be used as input</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Relay Mutations</h2>
+    <pre><code class="language-js">class RemoveCartPositionMutation extends Relay.Mutation {
+  getFatQuery() {
+    return Relay.QL`fragment on RemoveCartPositionPayload {
+      deletedId
+      cart {
+        totalPrice
+        positions
+      }
+    }`;
+  }
+};</code></pre>
+    <ul>
+      <li>Fat query represents every field that could change as result of mutation</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Relay Mutations</h2>
+    <pre><code class="language-js">class RemoveCartPositionMutation extends Relay.Mutation {
+  getConfigs() {
+    return [{ type: 'FIELDS_CHANGE',
+              fieldIDs: {cart: this.props.cartPosition.cart.id} },
+            { type: 'NODE_DELETE',
+              parentName: 'cart',
+              parentID: this.props.cartPosition.cart.id,
+              connectionName: 'positions',
+              deletedIDFieldName: 'deletedId' } ];
+  }
+};</code></pre>
+    <ul>
+      <li>Declarative configuration of Relay behaviour for cache invalidation</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Relay Mutations</h2>
+    <pre><code class="language-js">class RemoveCartPositionMutation extends Relay.Mutation {
+  getOptimisticResponse() {
+    const cartPosition = this.props.cartPosition;
+    const cart = cartPosition.cart;
+
+    return {
+      deletedId: cartPosition.id,
+      cart: {
+        totalPrice: cart.totalPrice - cartPosition.totalPrice,
+      }
+    };
+  }
+};</code></pre>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Relay Mutations</h2>
+    <pre><code class="language-js">class RemoveCartPositionMutation extends Relay.Mutation {
+  getCollisionKey() {
+    return `removeCartPosition`;
+  }
+};</code></pre>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Relay Mutations</h2>
+    <pre><code class="language-js">Relay.Store.update(
+  new RemoveCartPositionMutation({ cartPosition }),
+  {
+    onSuccess: () => { /* ... */ },
+    onFailure: (transaction) => {
+      console.error(transaction.getError());
+    },
+  }
+);</code></pre>
+  </div></section>
+
+  <section class="slide shout"><div>
+    <h2><a href="https://github.com/graphql/graphiql">GraphiQL</a></h2>
+  </div></section>
+
+  <section class="slide cover"><div>
+    <img src="pictures/graphiql.png" style="width: 100%" />
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>What is GraphiQL?</h2>
+    <ul>
+      <li>In-browser GraphQL IDE</li>
+      <li>Autocompletion</li>
+      <li>Validation</li>
+      <li>Built-in documentation</li>
+    </ul>
+  </div></section>
+
+  <section class="slide shout"><div>
+    <h2>
+      <a href="https://www.reindex.io">Reindex</a>
+      <br />
+      <span style="font-size: 70%; line-height: 3;">GraphQL as a service</span>
+    </h2>
+  </div></section>
+
+  <section class="slide shout"><div>
+    <h2><a href="https://github.com/facebook/dataloader">DataLoader</a></h2>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>DataLoader</h2>
+    <pre><code class="language-js">const userLoader = new DataLoader(async (ids) => {
+  return await getUsersByIds(ids);
+});
+
+userLoader.load(1);
+userLoader.load(2);
+userLoader.load(3);
+// nextTick => getUsersByIds([1, 2, 3])
+
+userLoader.load(3);
+// cache hit
+</code></pre>
+  </div></section>
+
+  <section class="slide shout"><div>
+    <h2>What is result?</h2>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Benefits</h2>
+    <ul>
+      <li>One single model — you don't need to use many different REST endpoints</li>
+      <li>Decoupling product code and server logic</li>
+      <li>Declarative – You just need to describe what data are you need, everything else has been already solved for you</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>Differences between Falcor/Relay</h2>
+    <ul>
+      <li>Falcor is better with microservices, when a single resource can be shared between those services</li>
+      <li>Relay is better with network optimizations</li>
+      <li>Falcor is easier and simpler</li>
+      <li>Relay is more manageable because type validation, documentation, and deprecation mechanisms</li>
+      <li>Relay is depended on React</li>
+      <li>You could use GraphQL without Relay</li>
+      <li>GraphQL have introspection</li>
+    </ul>
+  </div></section>
+
+  <section class="slide"><div>
+    <h2>"Ripster" boilerplate</h2>
+    <p><a href="https://github.com/vslinko/ripster">https://github.com/vslinko/ripster</a></p>
+    <ul>
+      <li>GraphQL.js</li>
+      <li>Relay</li>
+      <li>Redux</li>
+      <li>Neo4j</li>
+      <li>I18n</li>
+    </ul>
+  </div></section>
+
+  <section class="slide shout"><div>
+    <h2>Questions?</h2>
+  </div></section>
+
+  <style>
+    .slide > div {
+      padding-top: 25px;
+    }
+    .slide pre {
+      font-size: 70%;
+    }
+    .slide h2 {
+      margin-bottom: 0.5em;
+    }
+    .slide::after {
+      bottom: 15px;
+    }
+  </style>
+
+  <p class="badge"><a href="https://github.com/vslinko/talks/tree/master/01-falcor-relay">Fork me on Github</a></p>
+  <div class="progress"><div></div></div>
+  <script src="node_modules/shower-core/shower.min.js"></script>
+  <script src="node_modules/prismjs/prism.js"></script>
+  <script src="node_modules/prismjs/components/prism-javascript.min.js"></script>
+  <script src="node_modules/prismjs/components/prism-jsx.min.js"></script>
+  <script src="node_modules/prismjs/components/prism-http.min.js"></script>
+</body>
+</html>

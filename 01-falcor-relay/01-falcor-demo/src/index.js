@@ -49,7 +49,9 @@ function call() {
   return model
     .call(
       ['users', 'create'],
-      ['Smith', 25]
+      ['Smith', 25],
+      [['name']],
+      [['length']]
     )
     .then(log('call'), log('call error'));
 }

@@ -88,6 +88,22 @@ module.exports = () => {
       }
     },
     {
+      route: 'users.length',
+      get: () => {
+        const result =  [
+          {
+            path: ['users', 'length'],
+            value: {$type: 'atom', value: users.length},
+          },
+        ];
+
+        log('\nusers.length result');
+        log(result);
+
+        return result;
+      },
+    },
+    {
       route: 'users[{integers}]',
       get: (pathSet) => {
         const indexes = pathSet[1];
